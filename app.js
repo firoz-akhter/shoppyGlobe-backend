@@ -4,7 +4,7 @@ let Product = require("./model/Product");
 let Cart = require('./model/Cart')
 let User = require("./model/User.js")
 let jwt = require("jsonwebtoken")
-let bcrypt = require("bcrypt") 
+let bcrypt = require("bcrypt")
 // let axios = require("axios")
 
 
@@ -76,10 +76,11 @@ app.get("/cart", authenticateUser, async (req, res) => {
     // this router is not fully functioning
     // we will iterate over the cartItems and one by one get productById fill in array n return
     // return to client
+    let userId = req.user.id;
     try {
 
-        let cartItem = await Cart.find();
-        res.status(200).json(cartItem)
+        let cartItems = await Cart.find({userId})
+        res.status(200).json(cartItems)
 
     }
     catch (err) {
@@ -89,13 +90,16 @@ app.get("/cart", authenticateUser, async (req, res) => {
 
 
 app.post('/cart', authenticateUser, async (req, res) => {
+    // console.log("inside post route after authenticateUser")
     let { productId, quantity } = req.body;
-    console.log("doing validation");
-    const { firstName, lastName, hobby } = req.body;
+    let userId = req.user.id;
+
+    // console.log("doing validation");
     if (!productId || !quantity) {
         res.status(400).json({ error: "Some of the required field is missing..." });
-        return ;
+        return;
     }
+
 
     try {
         let product = await Product.findById(productId);
@@ -108,9 +112,20 @@ app.post('/cart', authenticateUser, async (req, res) => {
             return res.status(400).send("Low in stock....")
         }
 
-        let cartItem = new Cart({ productId, quantity });
-        await cartItem.save();
-        res.status(201).json(cartItem);
+        let cartItem = await Cart.findOne({ userId, productId })
+        if (cartItem) {
+            cartItem.quantity += quantity;
+            await cartItem.save();
+            console.log(userId);
+            res.status(200).json({ message: "Cart updated", cartItem });  
+        }
+        else {
+            console.log(userId);
+            cartItem = new Cart({ productId, userId, quantity });
+            await cartItem.save();
+            res.status(201).json(cartItem);
+        }
+
     } catch (err) {
         res.status(500).json({ message: 'Something went wrong server side...' });
     }
@@ -119,18 +134,31 @@ app.post('/cart', authenticateUser, async (req, res) => {
 
 // update the quantity of carItem
 app.put('/cart/:id', authenticateUser, async (req, res) => {
-    let { quantity } = req.body;
-    let id = req.params.id;
+    let {quantity} = req.body;
+    // console.log("typeof quantity-->", typeof quantity)
+    let userId = req.user.id;
+    let id = req.params.id; // this is productId
+    // console.log("id->", id);
+    // console.log("userId->", userId);
+    
+    if(!quantity || quantity <= 0) {
+        res.status(400).send("Quantity must be positive...")
+        return ;
+    }
 
     try {
-        const cartItem = await Cart.findById(id);
+        const cartItem = await Cart.findOne({ _id: id, userId });
         if (!cartItem) {
-            res.status(404).json({ message: 'Item with id not found...' });
+            res.status(404).json({ message: 'Item with id and userId not found...' });
             return;
         }
 
+        // it's better to check for availability of item in stock before incrementing quantity but lets see
         cartItem.quantity = quantity;
         await cartItem.save();
+        console.log("logging...")
+
+        console.log("Item quantity updated successfully...")
         res.json(cartItem);
     } catch (err) {
         res.status(500).json({ message: 'Something went wrong server side...' });
@@ -140,8 +168,12 @@ app.put('/cart/:id', authenticateUser, async (req, res) => {
 
 app.delete('/cart/:id', authenticateUser, async (req, res) => {
     let id = req.params.id;
+    let userId = req.user.id;
+    console.log("id->", id);
+    console.log("userId->", userId);
+    
     try {
-        const cartItem = await Cart.findByIdAndDelete(id);
+        const cartItem = await Cart.findOneAndDelete({_id: id, userId});
         if (!cartItem) {
             res.status(404).json({ message: 'No item found to delete...' });
             return;
@@ -154,29 +186,29 @@ app.delete('/cart/:id', authenticateUser, async (req, res) => {
 
 
 app.post("/login", async (req, res) => {
-    let {email, password} = req.body;
-    
-    if(!email || !password) {
+    let { email, password } = req.body;
+
+    if (!email || !password) {
         res.status(400).send("Email and password both required...")
-        return ;
+        return;
     }
 
 
     try {
 
         // finding saved user by email
-        let user = await User.findOne({email})
+        let user = await User.findOne({ email })
 
-        if(!user) {
+        if (!user) {
             res.status(401).send("User with email or password not found...")
-            return ;
+            return;
         }
 
         // check password is correct or not 
         let isValidPassword = await bcrypt.compare(password, user.password); // check one more
-        if(!isValidPassword) {
+        if (!isValidPassword) {
             res.status(401).send("Invalid email or password...");
-            return ;
+            return;
         }
 
         // generate token
@@ -198,19 +230,19 @@ app.post("/login", async (req, res) => {
 
 app.post("/register", async (req, res) => {
 
-    let {username, name, email, password} = req.body;
+    let { username, name, email, password } = req.body;
 
-    if(!username || !name || !email || !password) {
+    if (!username || !name || !email || !password) {
         res.status(400).send("Either one or more required fields are missing...")
-        return ;
+        return;
     }
 
     try {
 
-        let existingUser = await User.findOne({email});
-        if(existingUser) {
+        let existingUser = await User.findOne({ email });
+        if (existingUser) {
             res.status(409).send("Email already registered...");
-            return ;
+            return;
         }
 
         let hashedPassword = await bcrypt.hash(password, 10); // check once more
@@ -223,14 +255,14 @@ app.post("/register", async (req, res) => {
 
         await newUser.save();
 
-        let token = jwt.sign({
-            email: newUser.email
-        }, "secretKey")
+        let token = jwt.sign(newUser, "secretKey")
 
-        res.json({token, user: {
-            username: newUser.username,
-            email: newUser.email
-        }})
+        res.json({
+            token, user: {
+                username: newUser.username,
+                email: newUser.email
+            }
+        })
 
     }
     catch (err) {
@@ -244,12 +276,16 @@ function authenticateUser(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(" ")[1];
 
-    jwt.verify(token, "secretKey", (err, user) => {
-        if(err) {
+    jwt.verify(token, "secretKey", async (err, user) => {
+        if (err) {
             res.status(403).send("Invalid JWT token...");
-            return ;
+            return;
         }
-        req.user = user;
+
+        let email = user.email;
+        let existingUser = await User.findOne({email})
+        req.user = existingUser;
+        // console.log("user-->", existingUser.id);
         next();
     })
 }
