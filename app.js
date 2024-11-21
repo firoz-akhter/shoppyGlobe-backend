@@ -71,8 +71,8 @@ app.get('/products/:id', async (req, res) => {
 });
 
 
-app.get("/cart", async (req, res) => {
-    // this implementation is not required in the assignment
+app.get("/cart", authenticateUser, async (req, res) => {
+    // this  route implementation is not required in the assignment
     // this router is not fully functioning
     // we will iterate over the cartItems and one by one get productById fill in array n return
     // return to client
@@ -88,7 +88,7 @@ app.get("/cart", async (req, res) => {
 })
 
 
-app.post('/cart', async (req, res) => {
+app.post('/cart', authenticateUser, async (req, res) => {
     let { productId, quantity } = req.body;
     console.log("doing validation");
     const { firstName, lastName, hobby } = req.body;
@@ -96,7 +96,6 @@ app.post('/cart', async (req, res) => {
         res.status(400).json({ error: "Some of the required field is missing..." });
         return ;
     }
-
 
     try {
         let product = await Product.findById(productId);
@@ -119,7 +118,7 @@ app.post('/cart', async (req, res) => {
 
 
 // update the quantity of carItem
-app.put('/cart/:id', async (req, res) => {
+app.put('/cart/:id', authenticateUser, async (req, res) => {
     let { quantity } = req.body;
     let id = req.params.id;
 
@@ -139,7 +138,7 @@ app.put('/cart/:id', async (req, res) => {
 });
 
 
-app.delete('/cart/:id', async (req, res) => {
+app.delete('/cart/:id', authenticateUser, async (req, res) => {
     let id = req.params.id;
     try {
         const cartItem = await Cart.findByIdAndDelete(id);
@@ -166,17 +165,18 @@ app.post("/login", async (req, res) => {
     try {
 
         // finding saved user by email
-        let user = User.find({email})
+        let user = await User.findOne({email})
 
         if(!user) {
             res.status(401).send("User with email or password not found...")
             return ;
         }
 
-        // check password is correct or not
+        // check password is correct or not 
         let isValidPassword = await bcrypt.compare(password, user.password); // check one more
         if(!isValidPassword) {
             res.status(401).send("Invalid email or password...");
+            return ;
         }
 
         // generate token
@@ -188,19 +188,11 @@ app.post("/login", async (req, res) => {
         res.json({
             token
         })
-
-
-
-
-
     }
     catch (err) {
         console.log(err);
         res.status(500).send("Internal Server error");
     }
-
-
-
 })
 
 
@@ -221,7 +213,7 @@ app.post("/register", async (req, res) => {
             return ;
         }
 
-        let hashedPassword = await bcrypt.has(password, 10); // check once more
+        let hashedPassword = await bcrypt.hash(password, 10); // check once more
         const newUser = new User({
             username,
             name,
@@ -240,17 +232,15 @@ app.post("/register", async (req, res) => {
             email: newUser.email
         }})
 
-
     }
     catch (err) {
         console.log(err);
         res.status(500).send("Internal server error");
     }
-
 })
 
 
-function authenticateuser(req, res, next) {
+function authenticateUser(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(" ")[1];
 
