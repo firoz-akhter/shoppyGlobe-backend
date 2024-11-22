@@ -254,8 +254,9 @@ app.post("/register", async (req, res) => {
         })
 
         await newUser.save();
+        let user = {name, email}
 
-        let token = jwt.sign(newUser, "secretKey")
+        let token = jwt.sign(user, "secretKey")
 
         res.json({
             token, user: {
